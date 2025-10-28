@@ -70,8 +70,22 @@ class _MyHomePageState extends State<MyHomePage> {
     });
 
     try {
-      // Validate image availability
-      if (_pickedImage?.bytes == null) {
+      // Validate image availability and handle fallback to file
+      late final Uint8List imageBytes;
+      if (_pickedImage?.bytes != null) {
+        imageBytes = _pickedImage!.bytes!;
+      } else if (!kIsWeb && _pickedImage?.file != null) {
+        // Fall back to reading bytes from file on non-web platforms
+        try {
+          imageBytes = await _pickedImage!.file!.readAsBytes();
+        } catch (e) {
+          setState(() {
+            _isLoading = false;
+            _resultTitle = 'Error: Failed to read image file';
+          });
+          return;
+        }
+      } else {
         setState(() {
           _isLoading = false;
           _resultTitle = 'Error: No image data available';
@@ -79,8 +93,8 @@ class _MyHomePageState extends State<MyHomePage> {
         return;
       }
 
-      // Process the image
-      final base64Image = await processImageToBase64(_pickedImage!.bytes!);
+      // Process the image in a background isolate
+      final base64Image = await compute(processImageToBase64Sync, imageBytes);
       if (base64Image == null) {
         setState(() {
           _isLoading = false;

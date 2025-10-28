@@ -24,8 +24,11 @@ import 'package:image/image.dart' as img;
 Future<String?> processImageToBase64(Uint8List imageBytes) async {
   try {
     // Decode the image
-    final image = img.decodeImage(imageBytes);
-    if (image == null) return null;
+    final decodedImage = img.decodeImage(imageBytes);
+    if (decodedImage == null) return null;
+
+    // Bake EXIF orientation for correct pixel orientation
+    final image = img.bakeOrientation(decodedImage);
 
     // Calculate resize dimensions if needed
     final width = image.width;
@@ -66,8 +69,11 @@ Future<String?> processImageToBase64(Uint8List imageBytes) async {
 /// Has the same functionality as the async version but runs synchronously.
 String? processImageToBase64Sync(Uint8List imageBytes) {
   try {
-    final image = img.decodeImage(imageBytes);
-    if (image == null) return null;
+    final decodedImage = img.decodeImage(imageBytes);
+    if (decodedImage == null) return null;
+
+    // Bake EXIF orientation for correct pixel orientation
+    final image = img.bakeOrientation(decodedImage);
 
     final width = image.width;
     final height = image.height;
