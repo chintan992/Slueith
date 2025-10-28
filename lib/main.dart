@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -274,20 +273,15 @@ class _MyHomePageState extends State<MyHomePage> {
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(12),
                         child: Builder(builder: (context) {
-                          // Prefer bytes for web preview; Image.memory works across
-                          // platforms when bytes are available. For mobile prefer
-                          // Image.file when a File is present to avoid extra memory copy.
-                          if (kIsWeb || _pickedImage!.bytes != null) {
-                            final bytes = _pickedImage!.bytes;
-                            if (bytes != null) {
-                              return Image.memory(bytes, fit: BoxFit.contain, width: double.infinity);
+                            final imageBytes = _pickedImage?.bytes;
+                            if (imageBytes != null) {
+                                return Image.memory(imageBytes, fit: BoxFit.contain, width: double.infinity);
                             }
-                          }
-                          // Fallback to File when available (non-web platforms)
-                          if (_pickedImage!.file != null) {
-                            return Image.file(_pickedImage!.file!, fit: BoxFit.contain, width: double.infinity);
-                          }
-                          return const Center(child: Text('Unable to preview image', style: TextStyle(color: Colors.white60)));
+                            final imageFile = _pickedImage?.file;
+                            if (!kIsWeb && imageFile != null) {
+                                return Image.file(imageFile, fit: BoxFit.contain, width: double.infinity);
+                            }
+                            return const Center(child: Text('Unable to preview image', style: TextStyle(color: Colors.white60)));
                         }),
                       ),
                     ),
