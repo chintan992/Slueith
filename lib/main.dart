@@ -1,6 +1,11 @@
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:tmdb_api/tmdb_api.dart';
 
 // Conditional import: use the IO implementation on non-web, and the web
 // implementation when compiling to the web to avoid importing `dart:io`.
@@ -8,7 +13,8 @@ import 'src/image_io_io.dart' if (dart.library.html) 'src/image_io_web.dart';
 import 'src/image_processing.dart';
 import 'src/mistral_api_service.dart';
 
-void main() {
+Future<void> main() async {
+  await dotenv.load(fileName: ".env");
   runApp(const MyApp());
 }
 
@@ -18,6 +24,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'Slueith - Movie Identifier',
       theme: ThemeData.dark(useMaterial3: true),
       home: const MyHomePage(title: 'Movie Identifier'),
@@ -37,8 +44,35 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   PickedImage? _pickedImage;
   String? _resultTitle;
+  Map? _movieDetails;
   bool _isLoading = false;
   final ImagePicker _picker = ImagePicker();
+  late final TMDB tmdb;
+  final TextEditingController _urlController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    final apiKey = dotenv.env['TMDB_API_KEY'];
+    if (apiKey == null) {
+      // Handle the case where the API key is not found
+      // You might want to show an error or disable the feature
+      if (kDebugMode) {
+        print('TMDB_API_KEY not found in .env file');
+      }
+      return;
+    }
+    tmdb = TMDB(
+      ApiKeys(apiKey, 'apiReadAccessTokenv4'),
+      logConfig: const ConfigLogger(showLogs: true, showErrorLogs: true),
+    );
+  }
+
+  @override
+  void dispose() {
+    _urlController.dispose();
+    super.dispose();
+  }
 
   Future<void> _pickImage() async {
     try {
@@ -49,6 +83,8 @@ class _MyHomePageState extends State<MyHomePage> {
           _isLoading = false;
           _pickedImage = picked;
           _resultTitle = null; // clear previous result
+          _movieDetails = null;
+          _urlController.clear();
         });
       }
     } catch (e) {
@@ -61,10 +97,46 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
+  Future<void> _fetchImageFromUrl() async {
+    final url = _urlController.text.trim();
+    if (url.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _resultTitle = null;
+      _movieDetails = null;
+      _pickedImage = null;
+    });
+
+    try {
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        final imageBytes = response.bodyBytes;
+        setState(() {
+          _pickedImage = PickedImage(bytes: imageBytes);
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _isLoading = false;
+          _resultTitle = 'Error: Failed to fetch image from URL';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _resultTitle = 'Error fetching image: $e';
+      });
+    }
+  }
+
   Future<void> _identifyMovie() async {
     setState(() {
       _isLoading = true;
       _resultTitle = null;
+      _movieDetails = null;
     });
 
     try {
@@ -104,8 +176,13 @@ class _MyHomePageState extends State<MyHomePage> {
       // Call the Mistral API to identify the movie
       final movieTitle = await identifyMovieFromImage(base64Image);
       setState(() {
-        _isLoading = false;
         _resultTitle = movieTitle;
+      });
+      if (movieTitle != null && movieTitle != 'Unknown') {
+        await _fetchMovieDetails(movieTitle);
+      }
+      setState(() {
+        _isLoading = false;
       });
     } catch (e) {
       setState(() {
@@ -118,6 +195,25 @@ class _MyHomePageState extends State<MyHomePage> {
           SnackBar(content: Text('Error processing image: $e')),
         );
       }
+    }
+  }
+
+  Future<void> _fetchMovieDetails(String movieTitle) async {
+    try {
+      final searchResult = await tmdb.v3.search.queryMovies(movieTitle);
+      if (searchResult['results'].isNotEmpty) {
+        setState(() {
+          _movieDetails = searchResult['results'][0];
+        });
+      }
+    } catch (e) {
+      // Handle error
+    }
+  }
+
+  void _shareResult() {
+    if (_resultTitle != null && _resultTitle != 'Unknown') {
+      Share.share('I found this movie: $_resultTitle');
     }
   }
 
@@ -144,7 +240,26 @@ class _MyHomePageState extends State<MyHomePage> {
                     child: Text('Upload File', style: TextStyle(fontSize: 16)),
                   ),
                 ),
-
+                const SizedBox(height: 16),
+                const Text(
+                  'Or enter an image URL:',
+                  style: TextStyle(color: Colors.white70),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _urlController,
+                  decoration: const InputDecoration(
+                    hintText: 'https://example.com/image.jpg',
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ElevatedButton(
+                  onPressed: _isLoading ? null : _fetchImageFromUrl,
+                  child: const Text('Fetch Image from URL'),
+                ),
                 const SizedBox(height: 16),
 
                 if (_pickedImage != null) ...[
@@ -217,12 +332,47 @@ class _MyHomePageState extends State<MyHomePage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Result:', style: TextStyle(fontWeight: FontWeight.bold)),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Result:', style: TextStyle(fontWeight: FontWeight.bold)),
+                              IconButton(
+                                icon: const Icon(Icons.share),
+                                onPressed: _shareResult,
+                              ),
+                            ],
+                          ),
                           const SizedBox(height: 8),
                           Text(
                             _resultTitle == 'Unknown' ? 'Sorry, couldn\'t find a title for that one!' : _resultTitle!,
                             style: const TextStyle(fontSize: 18),
                           ),
+                          if (_movieDetails != null) ...[
+                            const SizedBox(height: 16),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (_movieDetails!['poster_path'] != null)
+                                  Image.network(
+                                    'https://image.tmdb.org/t/p/w200${_movieDetails!['poster_path']}',
+                                    height: 150,
+                                  ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      if (_movieDetails!['release_date'] != null)
+                                        Text('Year: ${_movieDetails!['release_date'].split('-')[0]}'),
+                                      const SizedBox(height: 8),
+                                      if (_movieDetails!['overview'] != null)
+                                        Text(_movieDetails!['overview'], maxLines: 5, overflow: TextOverflow.ellipsis,),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ],
                       ),
                     ),
