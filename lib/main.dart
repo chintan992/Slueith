@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 // implementation when compiling to the web to avoid importing `dart:io`.
 import 'src/image_io_io.dart' if (dart.library.html) 'src/image_io_web.dart';
 import 'src/image_processing.dart';
+import 'src/mistral_api_service.dart';
 
 void main() {
   runApp(const MyApp());
@@ -37,9 +38,6 @@ class _MyHomePageState extends State<MyHomePage> {
   PickedImage? _pickedImage;
   String? _resultTitle;
   bool _isLoading = false;
-  // Stores the processed base64 image string for the upcoming API integration phase
-  // ignore: unused_field
-  String? _processedImageBase64;
   final ImagePicker _picker = ImagePicker();
 
   Future<void> _pickImage() async {
@@ -103,13 +101,11 @@ class _MyHomePageState extends State<MyHomePage> {
         return;
       }
 
-      // Store processed image
-      _processedImageBase64 = base64Image;
-
-      // Update state with temporary success message
+      // Call the Mistral API to identify the movie
+      final movieTitle = await identifyMovieFromImage(base64Image);
       setState(() {
         _isLoading = false;
-        _resultTitle = 'Image processed successfully (${base64Image.length} chars)';
+        _resultTitle = movieTitle;
       });
     } catch (e) {
       setState(() {
