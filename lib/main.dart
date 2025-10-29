@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -110,19 +111,24 @@ class _MyHomePageState extends State<MyHomePage> {
     });
 
     try {
-      final response = await http.get(Uri.parse(url));
-      if (response.statusCode == 200) {
-        final imageBytes = response.bodyBytes;
-        setState(() {
-          _pickedImage = PickedImage(bytes: imageBytes);
-          _isLoading = false;
-        });
+      late final Uint8List imageBytes;
+      if (url.startsWith('data:image')) {
+        // Handle data URL
+        final uri = Uri.parse(url);
+        imageBytes = uri.data!.contentAsBytes();
       } else {
-        setState(() {
-          _isLoading = false;
-          _resultTitle = 'Error: Failed to fetch image from URL';
-        });
+        // Handle standard URL
+        final response = await http.get(Uri.parse(url));
+        if (response.statusCode == 200) {
+          imageBytes = response.bodyBytes;
+        } else {
+          throw Exception('Failed to fetch image from URL');
+        }
       }
+      setState(() {
+        _pickedImage = PickedImage(bytes: imageBytes);
+        _isLoading = false;
+      });
     } catch (e) {
       setState(() {
         _isLoading = false;
@@ -273,15 +279,13 @@ class _MyHomePageState extends State<MyHomePage> {
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(12),
                         child: Builder(builder: (context) {
-                            final imageBytes = _pickedImage?.bytes;
-                            if (imageBytes != null) {
-                                return Image.memory(imageBytes, fit: BoxFit.contain, width: double.infinity);
-                            }
-                            final imageFile = _pickedImage?.file;
-                            if (!kIsWeb && imageFile != null) {
-                                return Image.file(imageFile, fit: BoxFit.contain, width: double.infinity);
-                            }
-                            return const Center(child: Text('Unable to preview image', style: TextStyle(color: Colors.white60)));
+                          if (_pickedImage!.bytes != null) {
+                            return Image.memory(_pickedImage!.bytes!, fit: BoxFit.contain, width: double.infinity);
+                          }
+                          if (!kIsWeb && _pickedImage!.file != null) {
+                            return Image.file(_pickedImage!.file!, fit: BoxFit.contain, width: double.infinity);
+                          }
+                          return const Center(child: Text('Unable to preview image', style: TextStyle(color: Colors.white60)));
                         }),
                       ),
                     ),
